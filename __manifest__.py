@@ -13,7 +13,9 @@
         'l10n_latam_invoice_document',
     ],
     'data': [
-        'views/res_config_setting_views.xml'
+        'data/cron_data.xml',
+        'views/res_config_setting_views.xml',
+        'views/account_move_views.xml'
     ],
     'installable': True,
     'application': False,
