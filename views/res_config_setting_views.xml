@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <record id="view_res_config_settings_inherit_hka" model="ir.ui.view">
+        <field name="name">res.config.settings.hka.inherit</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="account.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='main_currency_setting_container']" position="after">
+                <!-- HKA Configuration Block -->
+                <h2 groups="base.group_system">HKA Integration</h2>
+                <div class="row mt16 o_settings_container" id="hka_settings_container" groups="base.group_system">
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_left_pane"/>
+                        <div class="o_setting_right_pane">
+                            <span class="o_form_label">HKA Web Service</span>
+                            <span class="fa fa-lg fa-cogs" title="Configuración de integración HKA" role="img"/>
+                            <div class="text-muted">
+                                Configuración de parámetros de conexión con el OSE/PSE HKA.
+                            </div>
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="hka_user" class="col-lg-4 o_light_label">Usuario</label>
+                                    <field name="hka_user"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="hka_password" class="col-lg-4 o_light_label">Contraseña</label>
+                                    <field name="hka_password" password="True"/>
+                                </div>                            
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_left_pane">
+                            <field name="hka_test_mode" />
+                        </div>
+                        <div class="o_setting_right_pane">
+                            <label for="hka_test_mode" />
+                            <div class="text-muted">
+                                Activa esta opción para utilizar el entorno de pruebas de HKA (OSE/PSE).
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
+        </field>
+    </record>
+</odoo>

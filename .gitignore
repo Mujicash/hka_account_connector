@@ -1,0 +1,68 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+.env/
+.venv/
+env/
+venv/
+ENV/
+Pipfile.lock
+
+# VS Code settings
+.vscode/
+.history/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.swp
+*~
+
+# Logs and temp files
+*.log
+*.tmp
+
+# IDE files
+.idea/
+*.iml
+
+# Python test/cache tools
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+nosetests.xml
+coverage.xml
+
+# Dist/build
+build/
+dist/
+*.egg-info/
+
+# Node/npm (if frontend used)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Odoo files not needed in version control
+*.zip
+*.xls
+*.xlsx
+*.pdf
+*.tar.gz
+
+# Auto-generated translation files (optional)
+*.pot
+*.po
+*.mo
