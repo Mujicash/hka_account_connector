@@ -10,10 +10,14 @@
     'depends': [
         'base',
         'account',
+        "uom",
         'l10n_latam_invoice_document',
+        "l10n_pe_edi_catalog",
     ],
     'data': [
         'data/cron_data.xml',
+        'data/uom_uom_data.xml',
+        'views/uom_uom_views.xml',
         'views/res_config_setting_views.xml',
         'views/account_move_views.xml'
     ],
