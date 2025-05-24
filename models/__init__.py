@@ -4,3 +4,4 @@ from . import hka_connector_config
 from . import hka_connector_service
 from . import account_move
 from . import uom_uom
+from . import product_template
