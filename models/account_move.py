@@ -1,5 +1,9 @@
 import base64
 import logging
+from lxml import html
+from dateutil.relativedelta import relativedelta
+import re
+
 from datetime import datetime
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError, ValidationError
@@ -31,12 +35,93 @@ class AccountMove(models.Model):
     hka_pdf_file = fields.Boolean(string="PDF Descargado", default=False, copy=False)
     hka_cdr_file = fields.Boolean(string="CDR Descargado", default=False, copy=False)
 
+    l10n_pe_edi_operation_type_code_id = fields.Many2one(
+        comodel_name="l10n_pe_edi.catalog.51",
+        string="Operation Type",
+        help="Operation type code for the invoice.",
+    )
+    l10n_pe_edi_detraction_type_id = fields.Many2one(
+        comodel_name="l10n_pe_edi.catalog.54",
+        string="Detraction Type",
+        copy=False,
+        help="SUNAT detraction type code. Required for operations subject to detraction.",
+    )
+    l10n_pe_edi_detraction_payment_type_id = fields.Many2one(
+        comodel_name="l10n_pe_edi.catalog.59",
+        string="Detraction Payment Type",
+        copy=False,
+        help="SUNAT payment method for detraction, e.g., deposit in Banco de la Nación.",
+    )
+    l10n_pe_edi_total_detraction = fields.Monetary(
+        string="Total Detraction",
+        store=True,
+        compute="_compute_total_detraction",
+        tracking=True,
+    )
+    l10n_pe_edi_detraction_bank_account = fields.Many2one(
+        comodel_name="res.partner.bank",
+        string="National bank Account",
+        help="Bank account for detraction deposit, usually in Banco de la Nación."
+    )
+    company_partner_id = fields.Many2one(
+        related='company_id.partner_id',
+        string="Partner de la compañía",
+        store=False,
+        readonly=True
+    )
+
     # Constants for file types
     _FILE_TYPES = {
         'XML': ('xml', 'application/xml'),
         'PDF': ('pdf', 'application/pdf'),
         'CDR': ('zip', 'application/zip'),
     }
+
+    @api.onchange('l10n_pe_edi_detraction_type_id')
+    def _onchange_detraction_type(self):
+        """
+        Updates detraction-related fields based on the selected detraction type.
+
+        - If a detraction type is selected:
+            - Sets the operation type to '1001' (Operation subject to detraction).
+            - Sets the payment method from the selected detraction type.
+            - Loads the default bank account from the company settings.
+        - If the detraction type is removed:
+            - Resets the operation type to '0101' (Internal sale).
+            - Clears the payment method and bank account fields.
+        """
+        catalog51 = self.env['l10n_pe_edi.catalog.51']
+        if self.l10n_pe_edi_detraction_type_id:
+            # Operation type code for detraction
+            self.l10n_pe_edi_operation_type_code_id = catalog51.search([('code', '=', '1001')], limit=1)
+            # estos campos se habilitan en la vista
+            # self.l10n_pe_edi_detraction_payment_type_id = company_id.l10n_pe_edi_detraction_payment_type_id or False
+            # self.l10n_pe_edi_detraction_bank_account = company_id.l10n_pe_edi_detraction_bank_account_id or False
+        else:
+            # Operation type code for normal invoice
+            self.l10n_pe_edi_operation_type_code_id = catalog51.search([('code', '=', '0101')], limit=1)
+            self.l10n_pe_edi_detraction_payment_type_id = False
+            self.l10n_pe_edi_detraction_bank_account = False
+
+    @api.depends(
+        'l10n_pe_edi_detraction_type_id',
+        'l10n_pe_edi_detraction_type_id.rate',
+        'amount_total'
+    )
+    def _compute_total_detraction(self):
+        """
+        Computes the total detraction amount based on the invoice total
+        and the detraction percentage defined in the selected detraction type.
+        """
+        for move in self:
+            if move.l10n_pe_edi_detraction_type_id:
+                rate = move.l10n_pe_edi_detraction_type_id.rate or 0.0
+                detraction = round(move.amount_total * rate / 100, 2)
+                move.l10n_pe_edi_total_detraction = detraction
+                # move.l10n_pe_edi_total_detraction_signed = detraction
+            else:
+                move.l10n_pe_edi_total_detraction = 0.0
+                # move.l10n_pe_edi_total_detraction_signed = 0.0
 
     def _prepare_hka_header(self):
         """
@@ -60,7 +145,8 @@ class AccountMove(models.Model):
             # "serie": "F002",
             # "correlativo": "2",
             # "codigoTipoOperacion": self.l10n_pe_edi_operation_type or '0101',
-            "codigoTipoOperacion": '0101',
+            # "codigoTipoOperacion": '0101',
+            "codigoTipoOperacion": self.l10n_pe_edi_operation_type_code_id.code or '0101',
         }
 
     def _prepare_hka_emisor(self):
@@ -99,6 +185,11 @@ class AccountMove(models.Model):
             "numDocumento": partner.vat or '',
             "razonSocial": partner.name,
             "notificar": "NO",
+            "pais": partner.country_id.code or '',
+            "provincia": partner.state_id.name or '',
+            "departamento": partner.state_id.name or '',
+            "distrito": partner.city or '',
+            "direccion": partner.street or '',
         }
 
     def _prepare_hka_items(self):
@@ -119,8 +210,8 @@ class AccountMove(models.Model):
                 "numeroOrden": str(idx),
                 "descripcion": line.name,
                 "cantidad": str(int(line.quantity)),
-                # "unidadMedida": line.product_uom_id.l10n_pe_edi_measure_unit_code or 'NIU',
-                "unidadMedida": 'NIU',
+                "unidadMedida": line.product_uom_id.l10n_pe_edi_uom_code_id.code,
+                # "unidadMedida": 'NIU',
                 "valorUnitarioBI": f"{line.price_unit:.2f}",
                 "valorVentaItemQxBI": f"{base:.2f}",
                 "precioVentaUnitarioItem": f"{line.price_total:.2f}",
@@ -164,7 +255,107 @@ class AccountMove(models.Model):
             "fechaInicio": date,
             "fechaFin":    date,
             "moneda":      self.currency_id.name,
+            "tipoCambio": 3.75
         }
+    
+    def _prepare_hka_information(self):
+        """
+        Prepare additional information for the PDF customization.
+
+        Extracts key-value pairs from the HTML-formatted narration field.
+        Each <p> line is split by the first colon (:) into title and value.
+
+        :return: List of dicts with 'seccion', 'titulo', and 'valor' per line.
+        :rtype: list
+        """
+        result = []
+
+        if self.narration:
+            _logger.info(f"Preparing HKA information from narration: {self.narration}")
+
+            doc = html.fromstring(self.narration)
+            paragraphs = doc.xpath('//p')
+            _logger.info(f"Paragraphs found: {paragraphs}")
+
+            for p in paragraphs:
+                full_text = p.text_content().strip()
+                clean_line = re.sub(r'\s+', ' ', full_text)
+
+                _logger.info(f"Processing line: {clean_line}")
+
+                if ':' in clean_line:
+                    key, value = map(str.strip, clean_line.split(':', 1))
+                    result.append({
+                        "seccion": "1",
+                        "titulo": key,
+                        "valor": value
+                    })
+
+        return result
+    
+    def _prepare_hka_detraction(self):
+        """
+        Prepare detraction information for the payload.
+
+        :return: Dict with detraction info.
+        :rtype: dict
+        """
+        return [{
+            "codigo": self.l10n_pe_edi_detraction_type_id.code,
+            "medioPago": self.l10n_pe_edi_detraction_payment_type_id.code,
+            "monto": f"{self.l10n_pe_edi_total_detraction:.2f}",
+            "numCuentaBancodelaNacion": self.l10n_pe_edi_detraction_bank_account.acc_number or '',
+            "porcentaje": self.l10n_pe_edi_detraction_type_id.rate,
+        }]
+    
+    def _prepare_hka_payment_method(self):
+        """
+        Define payment terms for 'facturaNegociable' in HKA.
+
+        If the invoice uses immediate payment, sets 'Contado' mode.
+        If it uses credit terms, sets 'Credito' mode and builds the list of dues.
+
+        :return: Dict for facturaNegociable including 'modoPago', 'montoNetoPendiente', and optionally 'cuotasFactura'.
+        :rtype: dict
+        """
+        self.ensure_one()
+        immediate_term = self.env.ref('account.account_payment_term_immediate', raise_if_not_found=False)
+        is_credit = self.invoice_payment_term_id and self.invoice_payment_term_id != immediate_term
+        net_amount = self.amount_total - self.l10n_pe_edi_total_detraction
+
+        payment_info = {
+            "modoPago": "Credito" if is_credit else "Contado",
+            "montoNetoPendiente": f"{net_amount:.2f}" if is_credit else "0"
+        }
+
+        if is_credit:
+            dues = []
+            lines = self.invoice_payment_term_id.line_ids.sorted(lambda l: l.days)
+            total_allocated = 0.0
+
+            for idx, line in enumerate(lines, start=1):
+                if line.value == 'balance':
+                    amount = net_amount - total_allocated
+                elif line.value == 'percent':
+                    amount = round(net_amount * line.value_amount / 100, 2)
+                elif line.value == 'fixed':
+                    amount = round(line.value_amount, 2)
+                else:
+                    amount = 0.0
+
+                due_date = self.invoice_date + relativedelta(months=line.months, days=line.days)
+                total_allocated += amount
+
+                dues.append({
+                    "fechaPagoCuota": due_date.strftime("%Y-%m-%d"),
+                    "identificadorCuota": f"Cuota{idx:03}",
+                    "montoPagoCuota": f"{amount:.2f}"
+                })
+
+            payment_info["cuotasFactura"] = dues
+
+        return payment_info
+
 
     def _prepare_hka_payload(self):
         """
@@ -181,19 +372,25 @@ class AccountMove(models.Model):
         items = self._prepare_hka_items()
         totals = self._prepare_hka_totals()
         payment = self._prepare_hka_payment()
+        payment_method = self._prepare_hka_payment_method()
 
-        return {
+        payload = {
             **header,
             "emisor": emisor,
             "receptor": receptor,
-            "facturaNegociable": {
-                "modoPago": "Contado",
-                "montoNetoPendiente": "0"
-            },
+            "facturaNegociable": payment_method,
             "producto": items,
             "totales": totals,
             "pago": payment,
         }
+
+        if self.narration:
+            payload["personalizacionPDF"] = self._prepare_hka_information()
+
+        if self.l10n_pe_edi_detraction_type_id:
+            payload["detraccion"] = self._prepare_hka_detraction()
+
+        return payload
 
     def button_send_hka(self):
         self.ensure_one()

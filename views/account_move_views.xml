@@ -33,4 +33,20 @@
         </xpath>
     </field>
   </record>
+
+  <record id="view_account_move_detraction_form_extension" model="ir.ui.view">
+    <field name="name">account.move.detraction.form.extension</field>
+    <field name="model">account.move</field>
+    <field name="inherit_id" ref="account.view_move_form"/>
+    <field name="arch" type="xml">
+      <xpath expr="//field[@name='partner_id']" position="after">
+        <field name="l10n_pe_edi_operation_type_code_id"/>
+        <field name="l10n_pe_edi_detraction_type_id"/>
+        <field name="l10n_pe_edi_detraction_payment_type_id" attrs="{'invisible': [('l10n_pe_edi_detraction_type_id', '=', False)]}"/>
+        <field name="company_partner_id" invisible="1"/>
+        <field name="l10n_pe_edi_detraction_bank_account" domain="[('partner_id', '=', company_partner_id)]" attrs="{'invisible': [('l10n_pe_edi_detraction_type_id', '=', False)]}"/>
+        <field name="l10n_pe_edi_total_detraction" attrs="{'invisible': [('l10n_pe_edi_detraction_type_id', '=', False)]}"/>
+      </xpath>
+    </field>
+  </record>
 </odoo>
