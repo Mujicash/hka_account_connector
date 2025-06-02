@@ -194,35 +194,47 @@ class AccountMove(models.Model):
 
     def _prepare_hka_items(self):
         """
-        Build the list of items/services included in the invoice.
+        Build the list of items/services included in the invoice for HKA.
 
+        Calculations are done manual and explicitly rounded to ensure consistency
+        with OSE validations, avoiding discrepancies in price with taxes.
+      
         :return: List of item dictionaries.
         :rtype: list
         """
         items = []
         for idx, line in enumerate(self.invoice_line_ids, start=1):
-            # suponemos IGV único por línea
-            igv = line.tax_ids.filtered(lambda t: t.amount).mapped('amount')
-            igv_pct = igv[0] if igv else 0
-            base = line.price_subtotal
-            monto_igv = base * igv_pct / 100
+            quantity = float(line.quantity)
+            if not quantity:
+                continue  # evitar división por cero
+
+            # Obtener el IGV (suponemos uno por línea)
+            igv_amounts = line.tax_ids.filtered(lambda t: t.amount and t.type_tax_use == 'sale').mapped('amount')
+            igv_pct = igv_amounts[0] if igv_amounts else 0.0
+
+            # Calcular el valor unitario sin IGV
+            valor_unitario_bi = round(line.price_subtotal / quantity, 2)
+            valor_venta_qxbi = round(valor_unitario_bi * quantity, 2)
+            precio_unitario_con_igv = round(valor_unitario_bi * (1 + igv_pct / 100), 2)
+            monto_igv = round(valor_venta_qxbi * igv_pct / 100, 2)
+
             items.append({
                 "numeroOrden": str(idx),
                 "descripcion": line.name,
-                "cantidad": str(int(line.quantity)),
-                "unidadMedida": line.product_uom_id.l10n_pe_edi_uom_code_id.code,
-                # "unidadMedida": 'NIU',
-                "valorUnitarioBI": f"{line.price_unit:.2f}",
-                "valorVentaItemQxBI": f"{base:.2f}",
-                "precioVentaUnitarioItem": f"{line.price_total:.2f}",
+                "cantidad": str(int(quantity)),
+                "unidadMedida": line.product_uom_id.l10n_pe_edi_uom_code_id.code or 'NIU',
+                "valorUnitarioBI": f"{valor_unitario_bi:.2f}",
+                "valorVentaItemQxBI": f"{valor_venta_qxbi:.2f}",
+                "precioVentaUnitarioItem": f"{precio_unitario_con_igv:.2f}",
                 "montoTotalImpuestoItem": f"{monto_igv:.2f}",
                 "IGV": {
-                    "baseImponible": f"{base:.2f}",
+                    "baseImponible": f"{valor_venta_qxbi:.2f}",
                     "porcentaje": f"{igv_pct:.2f}",
                     "monto": f"{monto_igv:.2f}",
                     "tipo": "10",
                 }
             })
+
         return items
 
     def _prepare_hka_totals(self):
@@ -251,11 +263,13 @@ class AccountMove(models.Model):
         :rtype: dict
         """
         date = self.invoice_date.strftime("%Y-%m-%d")
+        pen = self.env.ref('base.PEN', raise_if_not_found=False)
+
         return {
             "fechaInicio": date,
-            "fechaFin":    date,
-            "moneda":      self.currency_id.name,
-            "tipoCambio": 3.75
+            "fechaFin": date,
+            "moneda": self.currency_id.name,
+            "tipoCambio": pen.rate
         }
     
     def _prepare_hka_information(self):
@@ -402,26 +416,6 @@ class AccountMove(models.Model):
 
         connector = self.env['hka.connector.service'].sudo().get_client()
         _logger.info("Conectando a HKA...")
-
-    # def get_cdr(self):
-    #     try:
-    #         connector = self.env['hka.connector.service'].sudo().get_client()
-    #         resp = connector.download_file(self.hka_cpe_number, 'CDR')
-    #         if resp.get('codigo') == 0 and resp.get('archivo'):
-    #             data = base64.b64decode(resp['archivo'])
-    #             self.env['ir.attachment'].create({
-    #                 'name':      f"{self.name}.zip",
-    #                 'type':      'binary',
-    #                 'datas':     base64.b64encode(data),
-    #                 'mimetype':  'application/zip',
-    #                 'res_model': 'account.move',
-    #                 'res_id':    self.id,
-    #             })
-    #             _logger.info("CDR descargado para %s", self.name)
-    #         else:
-    #             _logger.info("CDR no listo para %s: %s", self.name, resp.get('mensaje'))
-    #     except Exception as e:
-    #         _logger.error("Error al descargar CDR %s: %s", self.name, e)
 
     def action_post(self):
         """
