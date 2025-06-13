@@ -408,14 +408,21 @@ class AccountMove(models.Model):
 
     def button_send_hka(self):
         self.ensure_one()
-        if self.move_type not in ('out_invoice','out_refund'):
-            raise UserError(_("Solo facturas o notas de crédito"))
-        # Prepara tu payload aquí...
-        payload = self._prepare_hka_payload()
-        _logger.info("Payload HKA: %s", payload)
+        _logger.info("Enviando %s a HKA", self.name)
+        domain = self._domain_pending_send() + [('id', '=', self.id)]
 
+        if not self.search(domain):
+            raise UserError(_("No se puede enviar la factura por HKA."))
+        
         connector = self.env['hka.connector.service'].sudo().get_client()
-        _logger.info("Conectando a HKA...")
+        
+        try:
+            sent = self._send_to_hka(connector)
+            self._handle_retry(sent)
+        except Exception as e:
+            _logger.error("Error al enviar %s a HKA: %s", self.name, e)
+        
+        _logger.info("Envío a HKA completado para %s", self.name)
 
     def action_post(self):
         """

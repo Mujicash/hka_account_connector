@@ -14,9 +14,9 @@
                     class="btn-primary"
                     attrs="{
                     'invisible': [
-                        ('move_type', 'not in', ('out_invoice','out_refund')),
-                        ('state', '!=', 'posted'),
-                        ('hka_status', 'not in', ('to_send','rejected'))
+                      '|', ('move_type', 'not in', ('out_invoice','out_refund')),
+                      '|', ('state', '!=', 'posted'),
+                      ('hka_status', 'not in', ('to_send','rejected'))
                     ]
                     }"/>
         </xpath>
